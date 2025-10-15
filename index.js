@@ -1,10 +1,10 @@
-// index.js
-// Monaco-based playground (mobile-friendly) + safe sandbox + object serialization + focus fixes
+// index.js (수정판)
+// - 실행은 오직 버튼 클릭으로만 트리거
+// - postMessage 필터링: 오직 sandbox에서 보낸 {__playground_message: true}만 처리
+// - 객체 직렬화 및 순환 참조 처리 유지
 
-// Ensure loader path
+// Monaco loader path
 require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' }});
-
-const OUTPUT_PREFIX = '[PLAY] ';
 
 function appendOutput(text) {
   const out = document.getElementById('output');
@@ -12,13 +12,13 @@ function appendOutput(text) {
   out.scrollTop = out.scrollHeight;
 }
 
-// create a fresh sandbox iframe (used for "stop")
 function createSandbox() {
   const existing = document.getElementById('sandbox');
   if (existing) existing.remove();
   const iframe = document.createElement('iframe');
   iframe.id = 'sandbox';
   iframe.sandbox = 'allow-scripts';
+  // 숨겨두고 pointer-events 비허용 -> 에디터 터치/포커스를 방해하지 않음
   iframe.style.display = 'none';
   iframe.style.pointerEvents = 'none';
   iframe.style.position = 'absolute';
@@ -30,21 +30,33 @@ function createSandbox() {
 
 let sandbox = createSandbox();
 
+// 메시지 리스너: 오직 우리가 만든 메시지 포맷 + sandbox에서 온 메시지만 처리
 window.addEventListener('message', (e) => {
-  const d = e.data;
-  if (d && typeof d === 'object' && d.__playground_message) {
-    appendOutput(d.text);
-  } else {
-    appendOutput(String(d));
+  try {
+    const d = e.data;
+    // 엄격 필터: 반드시 객체이고, __playground_message === true, 그리고 출처가 현재 sandbox여야 함
+    if (
+      d &&
+      typeof d === 'object' &&
+      d.__playground_message === true &&
+      sandbox &&
+      e.source === sandbox.contentWindow
+    ) {
+      appendOutput(d.text);
+    } else {
+      // 무시: 다른 iframe/라이브러리에서 오는 객체형 메시지 때문에 [object Object] 찍는 것 방지
+    }
+  } catch (err) {
+    // 방어 코드: 그래도 뭔가 터지면 무시
   }
 });
 
-// load monaco and create editor
+// Monaco 초기화 및 에디터 생성
 require(['vs/editor/editor.main'], function () {
   const editorContainer = document.getElementById('editorContainer');
 
   const editor = monaco.editor.create(document.getElementById('editor'), {
-    value: `// 예시: 객체, 배열, 순환 참조 출력 확인\nconsole.log("hello mobile");\nconsole.log({a:1, b:[1,2,3]});\nconst obj = {name:"loop"}; obj.self = obj; console.log(obj);\n`,
+    value: `// 예시: 객체, 순환 참조 출력 확인\nconsole.log("hello mobile");\nconsole.log({a:1, b:[1,2,3]});\nconst obj = {name:"loop"}; obj.self = obj; console.log(obj);\n`,
     language: 'javascript',
     theme: 'vs-dark',
     fontSize: 14,
@@ -53,11 +65,9 @@ require(['vs/editor/editor.main'], function () {
     minimap: { enabled: false },
   });
 
-  // Focus fixes for mobile:
-  // 1) make container focusable & focus editor on touchstart/click/mousedown
+  // 모바일 포커스 보정: container를 클릭/터치하면 에디터에 포커스
   editorContainer.setAttribute('tabindex', '0');
   function focusEditor(e) {
-    // prevent double-handling on touch->mouse
     e.preventDefault && e.preventDefault();
     try { editor.focus(); } catch (err) {}
   }
@@ -65,68 +75,28 @@ require(['vs/editor/editor.main'], function () {
   editorContainer.addEventListener('mousedown', focusEditor);
   editorContainer.addEventListener('click', focusEditor);
 
-  // also ensure editor dom node is focusable (safety)
+  // 보조: editor DOM에도 tabindex
   const dom = editor.getDomNode();
   if (dom && !dom.getAttribute('tabindex')) dom.setAttribute('tabindex', '0');
 
-  // Buttons
+  // 버튼들
   const runBtn = document.getElementById('run');
   const stopBtn = document.getElementById('stop');
   const saveBtn = document.getElementById('save');
 
-  // Keyboard shortcuts
-  document.addEventListener('keydown', (ev) => {
-    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
-      ev.preventDefault();
-      runBtn.click();
-    }
-    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
-      ev.preventDefault();
-      saveBtn.click();
-    }
-  });
-
-  // Safe serialize (handles objects, circular, Error, bigint, functions)
-  function getCircularReplacer() {
-    const seen = new WeakSet();
-    return function(key, value) {
-      if (typeof value === 'object' && value !== null) {
-        if (seen.has(value)) return '[Circular]';
-        seen.add(value);
-      }
-      if (typeof value === 'bigint') return value.toString() + 'n';
-      return value;
-    };
-  }
-
-  function serializeArg(arg) {
-    const t = typeof arg;
-    if (t === 'string') return arg;
-    if (t === 'undefined') return 'undefined';
-    if (t === 'function') return arg.toString();
-    if (t === 'symbol') return arg.toString();
-    if (arg instanceof Error) {
-      return (arg && (arg.stack || arg.message)) || String(arg);
-    }
-    try {
-      return JSON.stringify(arg, getCircularReplacer(), 2);
-    } catch (e) {
-      try { return String(arg); } catch (e2) { return '[Unserializable]'; }
-    }
-  }
-
-  // Run user code inside sandbox via srcdoc
+  // 주의: 실행은 오직 버튼 클릭으로만 트리거. (Ctrl/Cmd+Enter 바인딩 제거)
   runBtn.addEventListener('click', () => {
     document.getElementById('output').textContent = '';
+
+    // 보이지 않게 유지 (포인터 차단) — editor 터치 방해하지 않음
     if (sandbox) {
-      // keep sandbox hidden and non-interactive so editor still receives touches
       sandbox.style.display = 'none';
       sandbox.style.pointerEvents = 'none';
     }
 
     const userCode = editor.getValue();
 
-    // Build srcdoc with watchdog & serialization
+    // 샌드박스에 주입할 srcdoc. 순환참조/에러/워치독 처리 포함.
     const src = `
 <!doctype html>
 <html>
@@ -156,12 +126,11 @@ require(['vs/editor/editor.main'], function () {
   console.warn = (...a) => send('warn', ...a);
   console.error = (...a) => send('error', ...a);
 
-  // watchdog (timeout) to prevent infinite loops
+  // watchdog (timeout) : 무한루프 방지
   var WATCHDOG_MS = 7000;
   var wd = setTimeout(function(){ parent.postMessage({ __playground_message: true, text: '[ERROR] Execution timed out after ' + WATCHDOG_MS + 'ms' }, '*'); throw new Error('Execution timed out'); }, WATCHDOG_MS);
 
   try {
-    // run user code
     var result = (function(){
       ${userCode.replace(/<\/script>/g, '<\\\\/script>')}
     })();
@@ -177,32 +146,33 @@ require(['vs/editor/editor.main'], function () {
 </html>
     `;
 
-    // inject into iframe (keeps iframe hidden so it won't block touches)
+    // 주입 (iframe은 계속 hidden 상태)
     sandbox.srcdoc = src;
 
-    // small delay: sometimes mobile needs a moment (no harm)
+    // 약간의 지연 후에도 iframe이 보이지 않도록
     setTimeout(() => {
-      // ensure sandbox still hidden and non-interactive
-      sandbox.style.display = 'none';
-      sandbox.style.pointerEvents = 'none';
+      if (sandbox) {
+        sandbox.style.display = 'none';
+        sandbox.style.pointerEvents = 'none';
+      }
     }, 50);
   });
 
-  // stop: recreate sandbox (kills running scripts)
+  // Stop: sandbox 재생성으로 현재 실행 중인 스크립트 제거
   stopBtn.addEventListener('click', () => {
     appendOutput('[INFO] Stopping sandbox and clearing state');
     sandbox.remove();
     sandbox = createSandbox();
   });
 
-  // save to localStorage
+  // Save: 로컬 저장
   saveBtn.addEventListener('click', () => {
     const code = editor.getValue();
     localStorage.setItem('playground_code', code);
     appendOutput('[INFO] Saved to localStorage');
   });
 
-  // load saved
+  // 로드된 코드가 있으면 복원
   const saved = localStorage.getItem('playground_code');
   if (saved) editor.setValue(saved);
 });
