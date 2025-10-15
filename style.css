@@ -1,0 +1,97 @@
+:root {
+  --bg: #1e1e1e;
+  --panel: #252526;
+  --output-bg: #0b0b0b;
+  --accent: #007acc;
+  --text: #ffffff;
+  --muted: #c7c7c7;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: text;
+}
+
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* editor container must be flexible and allow Monaco to compute height */
+.editor-container {
+  flex: 1;
+  min-height: 0; /* VERY IMPORTANT for flex children so height isn't collapsed */
+  display: block;
+  touch-action: auto; /* allow touch interactions */
+  -webkit-user-select: text;
+  -webkit-tap-highlight-color: rgba(255,255,255,0.06);
+  position: relative;
+}
+
+/* Monaco editor needs explicit height */
+#editor {
+  height: 100%;
+  width: 100%;
+}
+
+/* controls bar */
+#controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid #333;
+  gap: 8px;
+}
+
+#controls .label { color: var(--muted); font-size: 13px; }
+
+.buttons button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-left: 6px;
+  cursor: pointer;
+}
+.buttons button#stop { background: #c0392b; }
+.buttons button#save { background: #2d7a2d; }
+
+/* output console */
+#output {
+  background: var(--output-bg);
+  color: #9cff90;
+  font-family: monospace;
+  padding: 10px;
+  height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-top: 1px solid #222;
+}
+
+/* ensure iframe never intercepts pointer unless explicitly made visible */
+iframe#sandbox {
+  position: absolute;
+  width: 0;
+  height: 0;
+  left: -9999px;
+  top: -9999px;
+  border: none;
+  display: none;
+  pointer-events: none;
+}
+
+/* responsive tweaks */
+@media (max-width: 768px) {
+  #output { height: 110px; font-size: 13px; }
+  .buttons button { padding: 5px 8px; font-size: 13px; }
+}
